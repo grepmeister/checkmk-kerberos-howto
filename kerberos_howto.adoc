@@ -147,7 +147,7 @@ Valid starting       Expires              Service principal
 	renew until 25.07.2023 19:56:17
 ----
 
-* This script will create the keytab file using your TGT:
+* This script will create the keytab file for you using your TGT:
 
 .msktutil.sh
 [source,bash,linenums]
@@ -201,7 +201,7 @@ Valid starting       Expires              Service principal
 
 .try to get a kerberos service ticket
 ----
-kvno HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM
+$ kvno HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM
 HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM: kvno = 1
 ----
 
@@ -209,20 +209,25 @@ Now you can continue with <<install-keytab>>.
 
 === Create keytab file with ktpass.exe on windows
 
-* Alternatively, if you can not use msktutil on linux:
+* ... if you can not use msktutil on linux 
 
-.User
+.Create a User
 * Open *Active Directory Users and Computers*
-* Create a user account in active directory e.g. svc_http_prod with these attributes:
-** User login name: svc_http_prod
-** Password: Choose a random password, we will set it to random later anyhow.
+* New > User
+** User logon name: *svc_checkmk_http_prod*
 * Next
+** Password: Choose a random password, we will set it to random later anyhow.
+** [ ] User must change password at next login (not selected)
 ** [x] User cannot change password
 ** [x] Passwod never expires
-* Account > Account Options:
-** This account supports Kerberos AES 256 bit encryption.
+** [ ] Account is disabled (not selected)
+* Finish
+* Properties > Account > Account Options:
+** [x] This account supports Kerberos AES 256 bit encryption.
+* Apply
+* OK
 
-.Keytab
+.Export Keytab file
 * open an cmd.exe *as Administrator*
 * I use AES256-CTS-HMAC-SHA1-96 because I believe that this is state of the art.
 * Create the keytab file
@@ -230,7 +235,18 @@ Now you can continue with <<install-keytab>>.
 ----
 ktpass ^
    -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^
-   -mapuser svc_http_prod@IT.MYCOMPANY.TLD ^
+   -mapuser svc_checkmk_http_prod@IT.MYCOMPANY.TLD ^
+   -out c:\Temp\svc_checkmk_http_prod ^
+   -ptype KRB5_NT_PRINCIPAL ^
+   -crypto AES256-SHA1 ^
+   +rndPass
+----
+
+.remove me
+----
+ktpass ^
+   -princ HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM ^
+   -mapuser svc_checkmk_http_prod@JODOK.TRIBE29.COM ^
    -out c:\Temp\svc_http_prod.keytab ^
    -ptype KRB5_NT_PRINCIPAL ^
    -crypto AES256-SHA1 ^
@@ -475,6 +491,10 @@ curl --negotiate --user : https://monitoring.it.company.tld/prod/
 * increasing the apache debug level does not help much instead run it in the foreground apache -X 
 * You recreated the ServicePrincipal and keytab but you are still working with the old Service Ticket: kdestroy, kinit <username>
 * +KrbSaveCredentials on+ makes no sense for Checkmk and could be a security weakness.
+
+== Resources
+
+* https://web.mit.edu/kerberos/krb5-1.21/doc/admin/conf_files/krb5_conf.html
 
 == Asciidoctor 
 
