@@ -1,18 +1,22 @@
 // https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
-= Kerberos SSO with Active Directory in 2023
-:author: Y0d0g MiMiMi <github@stippmilch.de>
-:revision: 2023-07-19 12:06:12
-:homepage: https://github.com/FIXME 
+= Kerberos SSO & Active Directory in 2023 {revnumber}
+:author: Y0d0g MiMiMi
+:email: github@stippmilch.de
+:revnumber: v1.0
+:revdate: 2023-07-24 12:32:06
+:lang: en
+:imagesdir: img
+:doctype: article
+:homepage: https://github.com/grepmeister/checkmk-kerberos-howto/blob/main/kerberos_howto.adoc
 :toc: left
 :sectnums:
+:numbered:
 :icons: font
 :sectanchors:
-//:source-highlighter: rouge
-//:source-highlighter: pygments
-:pygments-linenums-mode: table
-:source-highlighter: coderay
-:coderay-linenums-mode: table
-:source-linenums-option:
+:experimental:
+:source-highlighter: rouge
+:rouge-linenums-mode: inline
+
 :SP: pass:quotes[*ServicePrincipal (SP)*]
 :AD: pass:quotes[*Active Directory (AD)*]
 :KDC: pass:quotes[*Key Distribution Center (KDC)*]
@@ -29,13 +33,12 @@ So I decided to write this HowTo. +
 
 [TIP]
 ====
-* The source of this document is located here: https://github.com/ FIXME
-* Please open github issues or pull request to improve the document.
+* The source of this document is located here: {homepage} 
+* Please open github https://github.com/grepmeister/checkmk-kerberos-howto/issues/new[issues] or pull request to improve the document.
 ====
 
-The new https://docs.checkmk.com/latest/en/saml.html?lquery=saml#heading__configuration_of_apache[SAML] document helped a lot to get the
-apache settings right. +
-I was using Windows 2019 and Checkmk 2.1 to while writing this document.
+The https://docs.checkmk.com/latest/en/saml.html?lquery=saml#heading__configuration_of_apache[SAML] document introduced for checkmk 2.2. helped a lot to get the apache settings right. +
+I was using Windows Server 2019 and Checkmk 2.1 while writing this document.
 
 //[cols="1,1"]
 .Example Environment used in this document:
@@ -54,28 +57,55 @@ I was using Windows 2019 and Checkmk 2.1 to while writing this document.
 
 * We need to set up a trust relationship between the Checkmk Server and the {AD} once by creating a kerberos keytab file.
 * A keytabfile contains a kind of shared secret.
-* To create the keytabfile we will either use *msktutil* on Linux or *ktpass.exe* on Windows.
+* To create the keytabfile we will either use *msktutil* on Linux icon:linux[] or *ktpass.exe* on Windows icon:windows[].
 * We will need a domain user to map the {SP} to.
+** On Windows you have to create the user manually first.
 ** msktutil will create the user it on it's own for you.
-** On Windows you have to create it manually first.
 * Finaly we have to adjust the apache configuration to use the Kerberos auth.conf
 
 == Prerequisite
 
 * Your checkmk is reachable by a FQDN and uses https (see https://docs.checkmk.com/latest/en/omd_https.html[Securing the web interface with HTTPS]).
 * Your Web Browsers trust your checkmk server's FQDN. (see <<browser-settings>> below)
-* You have got a Kerberos TGT (klist, kinit <AD-User>, on Windows you get it automatically on Domain login)
-* Keep in mind that your {AD} Servers first have to sync. It can take up to 15min until all Servers know
+* You have got a Kerberos Ticket Granting Tickets (TGT) (kinit <AD-User>, klist, on Windows you get it automatically on Domain login)
+* Keep in mind that usually your {AD} Servers first have to sync. It can take up to 15min until all Servers know about the new user and the SPN mapping.
 
 == Generate a keytab
 
 * I usually use msktutil to create a keytab containing the {SP}, because it is easy and just works.
-* But since msktutil is not available on the Checkmk Applinace I will also explain how to 
-get a keytabfile with the Windows tool ktpass.exe (which lhas got some pitfalls)
+* But since msktutil is not available on the Checkmk Applinace I will also explain how to
+get a keytabfile with the Windows tool ktpass.exe (which has got some pitfalls).
 
 === keytab with msktutil on linux
 
 TIP: You have to adjust some values to match your environment.
+
+I use this minimal /etc/krb5.conf
+
+./etc/krb5.conf
+[source,linenums]
+----
+[libdefaults]
+default_realm = IT.MYCOMPANY.TLD <1>
+
+dns_lookup_kdc = false
+dns_uri_lookup = false
+
+[realms]
+IT.MYCOMPANY.TLD = {
+  kdc = ad.mycompany.tld <2>
+}
+
+[domain_realm]
+.mycompany.tld = IT.MYCOMPANY.TLD <3>
+mycompany.tld = IT.MYCOMPANY.TLD <4>
+----
+<1> your {KR}
+<2> your {AD}
+<3> map your DNS domain to your {KR}
+<4> map your DNS domain to your {KR}
+
+This will create the keytab file.
 
 .msktutil.sh
 [source,bash,linenums]
@@ -92,31 +122,34 @@ msktutil \
 	--user-creds-only \
 	--use-service-account \
 	--keytab svc_http_prod.keytab \ <2>
-	--account-name svc_http_prod1 \
+	--account-name svc_http_prod \
 	--realm IT.MYCOMPANY.TLD \ <3>
   --enctypes 0x10 \ <4>
 	--service HTTP/remote.jodok.tribe29.com
 ----
-<1> add one of your active directory servers
+<1> use one of your active directory servers
 <2> the name of your keytab file
 <3> your kerberos realm
 <4> aes256-cts-hmac-sha1
-<5> your {SP} in the form *HTTP/<FQDN>@<REALM>* (FIXME does this work?)
+<5> your {SP} in the form *HTTP/<FQDN>*
 
 === keytab with ktpass.exe on windows
 
-* create a service account in active directory
-** cannot change password
-** passwod never expires
-** set encyption to AES-256
+* create a user account in active directory e.g. svc_http_prod with these attributes:
+** User login name: svc_http_prod
+** [x] User cannot change password
+** [x] Passwod never expires
+* Account > Account Options:
+** This account supports Kerberos AES 256 bit encryption.
 
-* open an cmd.exe as Administrator
+* open an cmd.exe *as Administrator*
 * run ktpass.exe ....
 
-* it can take up to n minutes that this gets replicated to your other domain controllers
-* after a while, you can test if this step worked
+WARNING: it can take up to n minutes that this gets replicated to your other domain controllers.
 
 === verify the keytab
+
+FIXME do we need a /etc/krb/krb5.conf
 
 klist ...
 
@@ -133,51 +166,68 @@ kvno
 mv -v ~/etc/apache/conf.d/cookie_auth.conf ~/cookie_auth.conf.bak
 ----
 
-.New Apache Config ~/etc/apache/conf.d/auth.conf
-[source,apache]
+.New Apache Config $HOME/etc/apache/conf.d/auth.conf
+[source,apache,linenums]
 ----
-Define SITE  mysite <1> 
-#            ^^^^^^
+Define SITE prod
+#           ^^^^ <1>
 
-Define REALM IT.MYCOMPANY.TLD <2>
-#            ^^^^^^^^^^^^^^^^
+Define REALM IT.MYCOMPANY.TLD
+#            ^^^^^^^^^^^^^^^^ <2>
 
 <IfModule !mod_auth_kerb.c>
-  LoadModule auth_kerb_module /usr/lib/apache2/modules/mod_auth_kerb.so
+   LoadModule auth_kerb_module /usr/lib/apache2/modules/mod_auth_kerb.so
+   #                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ <3>
 </IfModule>
 
 <Location /${SITE}>
-  Order allow,deny
-  Allow from all
-
-  AuthType Kerberos
-  AuthName "Checkmk Kerberos SSO Login"
-
-  KrbServiceName HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD <3>
-  #              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-  KrbMethodNegotiate on
-  KrbMethodK5Passwd on
-  KrbLocalUserMapping on
-  KrbSaveCredentials off
 
   # Use Kerberos auth only in case there is no Checkmk authentication
-  # cookie provided by the user
-  Require expr %{HTTP_COOKIE} =~ /auth_/
-  Require expr %{REQUEST_URI} = "/${SITE}/check_mk/register_agent.py"
-  Require expr %{REQUEST_URI} =~ m#^/${SITE}/check_mk/api/1\.0/#
-  Require expr %{QUERY_STRING} =~ /(_secret=|auth_|register_agent)/
-  Require valid-user
+  # cookie provided by the user and whitelist also some other required URLs
 
-  # Environment specific: Path to the keytab and the realm
+  <If "! %{HTTP_COOKIE} =~ /^(.*;)?auth_${SITE}/ && \
+    ! %{REQUEST_URI} = '/${SITE}/check_mk/register_agent.py' && \
+    ! %{REQUEST_URI} = '/${SITE}/check_mk/deploy_agent.py' && \
+    ! %{REQUEST_URI} = '/${SITE}/check_mk/run_cron.py' && \
+    ! %{REQUEST_URI} = '/${SITE}/check_mk/restapi.py' && \
+    ! %{REQUEST_URI} = '/${SITE}/check_mk/automation.py' && \
+    ! %{REQUEST_URI} -strmatch '/${SITE}/check_mk/api/*' && \
+    ! %{REQUEST_URI} = '/${SITE}check_mk/ajax_graph_images.py' && \
+    ! %{QUERY_STRING} =~ /(_secret=|auth_|register_agent)/ && \
+    ! %{REQUEST_URI} =~ m#^/${SITE}/(omd/|check_mk/((images|themes)/.*\.(png|svg)|login\.py|.*\.(css|js)))# ">
 
-  Krb5Keytab   /opt/omd/sites/jodok/svc_http_checkmk.keytab 
-  #            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    Order allow,deny
+    Allow from all
 
-  KrbAuthRealm ${REALM}
+    Require valid-user
 
-  # When Kerberos auth fails, show the login page to the user
-  # ErrorDocument 401 /${SITE}/check_mk/login.py
+    AuthType Kerberos
+    AuthName "Checkmk AD Kerberos Login"
+    KrbMethodNegotiate on
+    KrbMethodK5Passwd off
+    KrbLocalUserMapping on
+    KrbSaveCredentials off
+
+    # Environment specific: Path to the keytab, REALM and ServicePrincipal
+    Krb5Keytab /omd/sites/${SITE}/svc_http_prod.keytab
+    #          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ <3>
+
+    KrbServiceName HTTP/monitoring.it.mycompany.tld@IT.MYCOMPANY.TLD
+    #              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ <4>
+    KrbAuthRealm ${REALM}
+ 
+    ErrorDocument 401 '<html> \
+      <head> \
+        <meta http-equiv="refresh" content="1; URL=/${SITE}/check_mk/login.py"> \
+      </head> \
+      <body> \
+        Kerberos authentication failed, redirecting to login page. \
+        <a href="/${SITE}/check_mk/login.py">Click here</a>. \
+      </body> \
+    </html>'
+
+  </If>
+
 </Location>
 
 # These files are accessible unauthenticated (login page and needed ressources)
