@@ -80,7 +80,7 @@ I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 * Therefore I use this minimal /etc/krb5.conf:
 
 ./etc/krb5.conf
-[source,linenums]
+[source,bash,linenums]
 ----
 [libdefaults]
 default_realm = IT.MYCOMPANY.TLD <1>
@@ -124,19 +124,19 @@ This will create the keytab file.
 #!/bin/bash
 
 msktutil \
-	create \
-	--server ad.mycompany.tld \ <1>
-	--description "Created by $USER on $(date +%F)" \
-	--dont-expire-password \
-	--no-pac \
-	--no-reverse-lookups \
-	--user-creds-only \
-	--use-service-account \
-	--keytab svc_http_prod.keytab \ <2>
-	--account-name svc_http_prod \
-	--realm IT.MYCOMPANY.TLD \ <3>
+  create \
+  --server ad.mycompany.tld \ <1>
+  --description "Created by $USER on $(date +%F)" \
+  --dont-expire-password \
+  --no-pac \
+  --no-reverse-lookups \
+  --user-creds-only \
+  --use-service-account \
+  --keytab svc_http_prod.keytab \ <2>
+  --account-name svc_http_prod \
+  --realm IT.MYCOMPANY.TLD \ <3>
   --enctypes 0x10 \ <4>
-	--service HTTP/remote.jodok.tribe29.com
+  --service HTTP/monitoring.mycompany.tld <5>
 ----
 <1> use one of your active directory servers
 <2> the name of your keytab file
@@ -145,7 +145,6 @@ msktutil \
 <5> your {SP} in the form *HTTP/<FQDN>*
 
 === Create keytab file with ktpass.exe on windows
-
 
 .User
 * create a user account in active directory e.g. svc_http_prod with these attributes:
@@ -161,23 +160,34 @@ msktutil \
 .Keytab
 * open an cmd.exe *as Administrator*
 * I use AES256-CTS-HMAC-SHA1-96 because I believe that this is state of the art.
+* Create the keytab file
 
 ----
 ktpass ^
-   -princ HTTP/remote.jodok.tribe29.com@JODOK.TRIBE29.COM ^
-   -mapuser svc_http_cmk_prod@JODOK.TRIBE29.COM ^
-   -out z:\svc_http_remote.keytab ^
+   -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^
+   -mapuser svc_http_prod@IT.MYCOMPANY.TLD ^
+   -out c:\Temp\svc_http_remote.keytab ^
    -ptype KRB5_NT_PRINCIPAL ^
    -crypto AES256-SHA1 ^
    +rndPass
 ----
 
+[TIP]
+====
+* once you copied the c:\Temp\svc_http_remote.keytab into your checkmk site you shold remove the file as is contains a valid domain password.
+* it can take up to n minutes that this gets replicated to your other domain controllers.
+====
 
-WARNING: it can take up to n minutes that this gets replicated to your other domain controllers.
+* Verify Service Principal to User mapping
+----
+C:\Users\Administrator>setspn -L svc_http_checkmk
+Registered ServicePrincipalNames for CN=svc_http_prod,CN=Users,DC=mycompany,DC=tld:
+        HTTP/monitoring.mycompany.tld
+----
 
 === Verify the keytab file and SP in AD 
 
-* since we setup <<krb5-conf>> we can now use tools like kinit, klist, kvno 
+* since we <<krb5-conf>> we can now use tools like kinit, klist, kvno 
 
 klist ...
 kinit
@@ -271,7 +281,7 @@ Define REALM IT.MYCOMPANY.TLD
   Satisfy any
 </LocationMatch>
 ----
-<1> add your checkmk site name (instance) 
+<1> add your checkmk site name (instance)
 <2> add your {KR}
 <3> add your {SP} {MY-SP}
 
