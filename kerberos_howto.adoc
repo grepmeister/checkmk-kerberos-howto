@@ -22,13 +22,16 @@
 :KDC: pass:quotes[*Key Distribution Center (KDC)*]
 :KRB: pass:quotes[*Kerberos Single sign-on (SSO)*]
 :KR: pass:quotes[*Kerberos Realm*]
+:DC: pass:quotes[*Domain Controller (DC)*]
 :MY-SP: HTTP/monitoring.it.mycompany.tld
 // is there is a asciidoctor offline documentation ?
 
-I faild to set up {KRB} for Checkmk and {AD} using the offical document at https://docs.checkmk.com/latest/en/kerberos.html. +
-It's not complete as of https://github.com/Checkmk/checkmk-docs/blob/27fcad0191f44c0401f61227098e932597438226/en/kerberos.asciidoc[2023-07-18].
+I failed to set up {KRB} for Checkmk and {AD} using the https://docs.checkmk.com/latest/en/kerberos.html["Kerberos is not officially supported by Checkmk"] document. +
 
-I noticed that not only me but also other Checkmk users failed to set it up. +
+It's not complete as of https://github.com/Checkmk/checkmk-docs/blob/27fcad0191f44c0401f61227098e932597438226/en/kerberos.asciidoc[2023-07-18]. +
+I guess this is why it's not officially supported.
+
+I noticed that not only me but also other Checkmk users failed to set Kerberos up. +
 So I decided to write this HowTo. +
 
 [TIP]
@@ -37,8 +40,8 @@ So I decided to write this HowTo. +
 * Please open github https://github.com/grepmeister/checkmk-kerberos-howto/issues/new[issues] or pull request to improve the document.
 ====
 
-The https://docs.checkmk.com/latest/en/saml.html?lquery=saml#heading__configuration_of_apache[SAML] document introduced for checkmk 2.2. helped a lot to get the apache settings right. +
-I was using Windows Server 2019 and Checkmk 2.1 while writing this document.
+The https://docs.checkmk.com/latest/en/saml.html?lquery=saml#heading__configuration_of_apache[SAML] document introduced for checkmk 2.2. helped a lot to get the apache config settings right. +
+I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 
 //[cols="1,1"]
 .Example Environment used in this document:
@@ -48,8 +51,8 @@ I was using Windows Server 2019 and Checkmk 2.1 while writing this document.
 | {KR} | IT.MYCOMPANY.TLD | Always upper case. 
 | {SP} | HTTP/monitoring.it.mycompany.tld | ⚠️  It's *HTTP* not *HTTPS*.
 | Monitoring Server URL | https://monitoring.it.mycompany.tld |
-| Service User | svc_http_prod | In {AD} you have to map a {SP} to a user object.
-| DC Domain Controller | ad.mycompany.tld | acts as {KDC}
+| AD Service User | svc_http_prod | In {AD} you have to map a {SP} to a user object.
+| {DC} | ad.mycompany.tld | acts as {KDC}
 | Checkmk Site | prod | the checkmk site 
 |===
 
@@ -70,17 +73,11 @@ I was using Windows Server 2019 and Checkmk 2.1 while writing this document.
 * You have got a Kerberos Ticket Granting Tickets (TGT) (kinit <AD-User>, klist, on Windows you get it automatically on Domain login)
 * Keep in mind that usually your {AD} Servers first have to sync. It can take up to 15min until all Servers know about the new user and the SPN mapping.
 
-== Generate a keytab
+[#krb5-conf]
+=== Set up /etc/krb5.conf
 
-* I usually use msktutil to create a keytab containing the {SP}, because it is easy and just works.
-* But since msktutil is not available on the Checkmk Applinace I will also explain how to
-get a keytabfile with the Windows tool ktpass.exe (which has got some pitfalls).
-
-=== keytab with msktutil on linux
-
-TIP: You have to adjust some values to match your environment.
-
-I use this minimal /etc/krb5.conf
+* On Linux most kerberos related tools an libraries honor the /etc/krb5.conf
+* Therefore I use this minimal /etc/krb5.conf:
 
 ./etc/krb5.conf
 [source,linenums]
@@ -100,10 +97,24 @@ IT.MYCOMPANY.TLD = {
 .mycompany.tld = IT.MYCOMPANY.TLD <3>
 mycompany.tld = IT.MYCOMPANY.TLD <4>
 ----
-<1> your {KR}
-<2> your {AD}
+<1> replace with your {KR}
+<2> replace with your {AD}
 <3> map your DNS domain to your {KR}
 <4> map your DNS domain to your {KR}
+
+=== On Windows
+
+* Windows Servers usually already know everything about their kerberos domain. No need to configure anything.
+
+== Create the keytab file
+
+* I usually use msktutil to create a keytab containing the {SP}, because it is easy and just works.
+* But since msktutil is not available on the Checkmk Applinace I will also explain how to
+get a keytabfile with the Windows tool ktpass.exe (which has got some pitfalls).
+
+=== Create the keytab file with msktutil on linux
+
+TIP: You have to adjust some values to match your environment.
 
 This will create the keytab file.
 
@@ -133,34 +144,57 @@ msktutil \
 <4> aes256-cts-hmac-sha1
 <5> your {SP} in the form *HTTP/<FQDN>*
 
-=== keytab with ktpass.exe on windows
+=== Create keytab file with ktpass.exe on windows
 
+
+.User
 * create a user account in active directory e.g. svc_http_prod with these attributes:
 ** User login name: svc_http_prod
+** Password: Choose a random password, we will set it to random later anyhow.
+* Next
 ** [x] User cannot change password
 ** [x] Passwod never expires
 * Account > Account Options:
 ** This account supports Kerberos AES 256 bit encryption.
 
+
+.Keytab
 * open an cmd.exe *as Administrator*
-* run ktpass.exe ....
+* I use AES256-CTS-HMAC-SHA1-96 because I believe that this is state of the art.
+
+----
+ktpass ^
+   -princ HTTP/remote.jodok.tribe29.com@JODOK.TRIBE29.COM ^
+   -mapuser svc_http_cmk_prod@JODOK.TRIBE29.COM ^
+   -out z:\svc_http_remote.keytab ^
+   -ptype KRB5_NT_PRINCIPAL ^
+   -crypto AES256-SHA1 ^
+   +rndPass
+----
+
 
 WARNING: it can take up to n minutes that this gets replicated to your other domain controllers.
 
-=== verify the keytab
+=== Verify the keytab file and SP in AD 
 
-FIXME do we need a /etc/krb/krb5.conf
+* since we setup <<krb5-conf>> we can now use tools like kinit, klist, kvno 
 
 klist ...
-
 kinit
 kvno
+
+=== Install the keytab file
+
+* /omd/sites/${SITE}/etc/apache/svc_http_prod.keytab
+* cp
+* chown
+* chmod
 
 == Apache Config
 
 * As site user
 
-.move away cookie_auth.conf, we do not need it anymore
+.move away cookie_auth.conf, we do not need it
 [source,bash]
 ----
 mv -v ~/etc/apache/conf.d/cookie_auth.conf ~/cookie_auth.conf.bak
@@ -209,7 +243,7 @@ Define REALM IT.MYCOMPANY.TLD
     KrbSaveCredentials off
 
     # Environment specific: Path to the keytab, REALM and ServicePrincipal
-    Krb5Keytab /omd/sites/${SITE}/svc_http_prod.keytab
+    Krb5Keytab /omd/sites/${SITE}/etc/apache/svc_http_prod.keytab
     #          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ <3>
 
     KrbServiceName HTTP/monitoring.it.mycompany.tld@IT.MYCOMPANY.TLD
@@ -272,7 +306,7 @@ network.negotiate-auth.trusted-uris: .it.example.tld
 * curl can do negotate autentication
 * make sure you have a valid tgt ticket.
 ----
-curl --negotiate --user : https://moitoring.it.company.tld/prod/
+curl --negotiate --user : https://monitoring.it.company.tld/prod/
 ----
 
 == Summary
