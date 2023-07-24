@@ -1,0 +1,254 @@
+// https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
+= Kerberos SSO with Active Directory in 2023
+:author: Y0d0g MiMiMi <github@stippmilch.de>
+:revision: 2023-07-19 12:06:12
+:homepage: https://github.com/FIXME 
+:toc: left
+:sectnums:
+:icons: font
+:sectanchors:
+//:source-highlighter: rouge
+//:source-highlighter: pygments
+:pygments-linenums-mode: table
+:source-highlighter: coderay
+:coderay-linenums-mode: table
+:source-linenums-option:
+:SP: pass:quotes[*ServicePrincipal (SP)*]
+:AD: pass:quotes[*Active Directory (AD)*]
+:KDC: pass:quotes[*Key Distribution Center (KDC)*]
+:KRB: pass:quotes[*Kerberos Single sign-on (SSO)*]
+:KR: pass:quotes[*Kerberos Realm*]
+:MY-SP: HTTP/monitoring.it.mycompany.tld
+// is there is a asciidoctor offline documentation ?
+
+I faild to set up {KRB} for Checkmk and {AD} using the offical document at https://docs.checkmk.com/latest/en/kerberos.html. +
+It's not complete as of https://github.com/Checkmk/checkmk-docs/blob/27fcad0191f44c0401f61227098e932597438226/en/kerberos.asciidoc[2023-07-18].
+
+I noticed that not only me but also other Checkmk users failed to set it up. +
+So I decided to write this HowTo. +
+
+[TIP]
+====
+* The source of this document is located here: https://github.com/ FIXME
+* Please open github issues or pull request to improve the document.
+====
+
+The new https://docs.checkmk.com/latest/en/saml.html?lquery=saml#heading__configuration_of_apache[SAML] document helped a lot to get the
+apache settings right. +
+I was using Windows 2019 and Checkmk 2.1 to while writing this document.
+
+//[cols="1,1"]
+.Example Environment used in this document:
+|===
+| Item | Example in this document | Note
+
+| {KR} | IT.MYCOMPANY.TLD | Always upper case. 
+| {SP} | HTTP/monitoring.it.mycompany.tld | ⚠️  It's *HTTP* not *HTTPS*.
+| Monitoring Server URL | https://monitoring.it.mycompany.tld |
+| Service User | svc_http_prod | In {AD} you have to map a {SP} to a user object.
+| DC Domain Controller | ad.mycompany.tld | acts as {KDC}
+| Checkmk Site | prod | the checkmk site 
+|===
+
+== What needs to be done ?
+
+* We need to set up a trust relationship between the Checkmk Server and the {AD} once by creating a kerberos keytab file.
+* A keytabfile contains a kind of shared secret.
+* To create the keytabfile we will either use *msktutil* on Linux or *ktpass.exe* on Windows.
+* We will need a domain user to map the {SP} to.
+** msktutil will create the user it on it's own for you.
+** On Windows you have to create it manually first.
+* Finaly we have to adjust the apache configuration to use the Kerberos auth.conf
+
+== Prerequisite
+
+* Your checkmk is reachable by a FQDN and uses https (see https://docs.checkmk.com/latest/en/omd_https.html[Securing the web interface with HTTPS]).
+* Your Web Browsers trust your checkmk server's FQDN. (see <<browser-settings>> below)
+* You have got a Kerberos TGT (klist, kinit <AD-User>, on Windows you get it automatically on Domain login)
+* Keep in mind that your {AD} Servers first have to sync. It can take up to 15min until all Servers know
+
+== Generate a keytab
+
+* I usually use msktutil to create a keytab containing the {SP}, because it is easy and just works.
+* But since msktutil is not available on the Checkmk Applinace I will also explain how to 
+get a keytabfile with the Windows tool ktpass.exe (which lhas got some pitfalls)
+
+=== keytab with msktutil on linux
+
+TIP: You have to adjust some values to match your environment.
+
+.msktutil.sh
+[source,bash,linenums]
+----
+#!/bin/bash
+
+msktutil \
+	create \
+	--server ad.mycompany.tld \ <1>
+	--description "Created by $USER on $(date +%F)" \
+	--dont-expire-password \
+	--no-pac \
+	--no-reverse-lookups \
+	--user-creds-only \
+	--use-service-account \
+	--keytab svc_http_prod.keytab \ <2>
+	--account-name svc_http_prod1 \
+	--realm IT.MYCOMPANY.TLD \ <3>
+  --enctypes 0x10 \ <4>
+	--service HTTP/remote.jodok.tribe29.com
+----
+<1> add one of your active directory servers
+<2> the name of your keytab file
+<3> your kerberos realm
+<4> aes256-cts-hmac-sha1
+<5> your {SP} in the form *HTTP/<FQDN>@<REALM>* (FIXME does this work?)
+
+=== keytab with ktpass.exe on windows
+
+* create a service account in active directory
+** cannot change password
+** passwod never expires
+** set encyption to AES-256
+
+* open an cmd.exe as Administrator
+* run ktpass.exe ....
+
+* it can take up to n minutes that this gets replicated to your other domain controllers
+* after a while, you can test if this step worked
+
+=== verify the keytab
+
+klist ...
+
+kinit
+kvno
+
+== Apache Config
+
+* As site user
+
+.move away cookie_auth.conf, we do not need it anymore
+[source,bash]
+----
+mv -v ~/etc/apache/conf.d/cookie_auth.conf ~/cookie_auth.conf.bak
+----
+
+.New Apache Config ~/etc/apache/conf.d/auth.conf
+[source,apache]
+----
+Define SITE  mysite <1> 
+#            ^^^^^^
+
+Define REALM IT.MYCOMPANY.TLD <2>
+#            ^^^^^^^^^^^^^^^^
+
+<IfModule !mod_auth_kerb.c>
+  LoadModule auth_kerb_module /usr/lib/apache2/modules/mod_auth_kerb.so
+</IfModule>
+
+<Location /${SITE}>
+  Order allow,deny
+  Allow from all
+
+  AuthType Kerberos
+  AuthName "Checkmk Kerberos SSO Login"
+
+  KrbServiceName HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD <3>
+  #              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  KrbMethodNegotiate on
+  KrbMethodK5Passwd on
+  KrbLocalUserMapping on
+  KrbSaveCredentials off
+
+  # Use Kerberos auth only in case there is no Checkmk authentication
+  # cookie provided by the user
+  Require expr %{HTTP_COOKIE} =~ /auth_/
+  Require expr %{REQUEST_URI} = "/${SITE}/check_mk/register_agent.py"
+  Require expr %{REQUEST_URI} =~ m#^/${SITE}/check_mk/api/1\.0/#
+  Require expr %{QUERY_STRING} =~ /(_secret=|auth_|register_agent)/
+  Require valid-user
+
+  # Environment specific: Path to the keytab and the realm
+
+  Krb5Keytab   /opt/omd/sites/jodok/svc_http_checkmk.keytab 
+  #            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  KrbAuthRealm ${REALM}
+
+  # When Kerberos auth fails, show the login page to the user
+  # ErrorDocument 401 /${SITE}/check_mk/login.py
+</Location>
+
+# These files are accessible unauthenticated (login page and needed ressources)
+<LocationMatch /${SITE}/(omd/|check_mk/(images/.*\.png|login\.py|.*\.(css|js)))>
+  Order allow,deny
+  Allow from all
+  Satisfy any
+</LocationMatch>
+----
+<1> add your checkmk site name (instance) 
+<2> add your {KR}
+<3> add your {SP} {MY-SP}
+
+[#browser-settings]
+== Browser Settings
+
+=== Firefox
+
+* Configuring Firefox for Negotiate Authentication
+* Enter you DNS Domain for which you want to use kerberos.
+----
+about: config
+network.negotiate-auth.trusted-uris: .it.example.tld
+----
+
+* Firefox will then send a HTTP Header to the Checkmk Server that signals the apache, that it can do Kerberos.
+
+=== Google Chrome
+
+* On Windows EDGE usually already trusts your DNS domain.
+
+=== Microsoft EDGE
+
+* On Windows EDGE usually already trusts your DNS domain.
+
+=== Safari
+
+* I have no clue. But Safari can do Kerberos SSO as well. Somehow.
+
+=== Curl
+
+* curl can do negotate autentication
+* make sure you have a valid tgt ticket.
+----
+curl --negotiate --user : https://moitoring.it.company.tld/prod/
+----
+
+== Summary
+
+* In the original document there are some stars a in the apache configuration to highlight that they need to be customized, but users did not replace them.
+* The location of the keytab /etc/krb5.keytab makes not make much sense, since it only needs and only should be readable by the site apache.
+* 
+
+== Problems
+
+* increasing the apache debug level does not help much instead run it in the foreground apache -X 
+* You recreated the ServicePrincipal and keytab but you are still working with the old Service Ticket: kdestroy, kinit <username>
+* +KrbSaveCredentials on+ makes no sense for Checkmk and could be a security weakness.
+
+== Asciidoctor 
+
+NOTE: NOTE An admonition draws the reader's attention to auxiliary information.
+
+IMPORTANT: IMPORTANT Don't forget the children!
+
+TIP: TIP Look for the warp zone under the bridge.
+
+CAUTION: Slippery when wet.
+
+WARNING: The software you're about to use is untested.
+
+IMPORTANT: Sign off before stepping away from your computer.
+
+
