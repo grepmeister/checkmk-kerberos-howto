@@ -1,0 +1,1 @@
+# checkmk-kerberos-howto
