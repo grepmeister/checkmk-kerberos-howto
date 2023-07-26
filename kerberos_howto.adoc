@@ -63,8 +63,8 @@ I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 == What needs to be done ?
 
 * We need to set up a trust relationship between the Checkmk Servers site apache and the {AD} by exchanging a kerberos keytab file *once*.
-* A keytabfile contains a kind of shared secret.
-* To create the keytabfile we will either use *msktutil* on Linux icon:linux[] or *ktpass.exe* on Windows icon:windows[].
+* A keytab file contains a kind of shared secret.
+* To create the keytab file we will either use *msktutil* on Linux icon:linux[] or *ktpass.exe* on Windows icon:windows[].
 * We will need a domain user to map the {SP} to.
 ** On Windows you have to create the user manually first.
 ** msktutil on linux will create the user on it's own for you.
@@ -116,9 +116,9 @@ Usually there is no need to configure anything.
 
 * I prefere to use msktutil to create the keytab containing the {SP}, because it is easy and just works.
 * But since msktutil is not available e.g. on the Checkmk Applinace I will also explain how to
-get a keytabfile with the Windows tool ktpass.exe (which has got some pitfalls).
+get a keytab file with the Windows tool ktpass.exe (which has got some pitfalls).
 
-=== Create the keytab file with msktutil on linux
+=== Linux (msktutil)
 
 TIP: You have to adjust some values to match your environment.
 
@@ -175,7 +175,7 @@ msktutil \
 <4> --enctypes 0x10 stands for aes256-cts-hmac-sha1
 <5> --service your {SP} in the form *HTTP/<FQDN>*
 
-.list the content of the keytabfile
+.list the content of the keytab file
 ----
 $ klist -kte svc_msktutil_prod.keytab 
 Keytab name: FILE:svc_msktutil_prod.keytab
@@ -207,9 +207,9 @@ HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM: kvno = 1
 
 Now you can continue with <<install-keytab>>.
 
-=== Create keytab file with ktpass.exe on windows
+=== Windows (ktpass.exe)
 
-* ... if you can not use msktutil on linux 
+... if you can not use msktutil on linux:
 
 .Create a User
 * Open *Active Directory Users and Computers*
@@ -234,47 +234,40 @@ Now you can continue with <<install-keytab>>.
 
 ----
 ktpass ^
-   -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^
-   -mapuser svc_checkmk_http_prod@IT.MYCOMPANY.TLD ^
-   -out c:\Temp\svc_checkmk_http_prod ^
-   -ptype KRB5_NT_PRINCIPAL ^
-   -crypto AES256-SHA1 ^
-   +rndPass
+  -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^<1>
+  -mapuser svc_checkmk_http_prod@IT.MYCOMPANY.TLD ^<2>
+  -out c:\svc_checkmk_http_prod.keytab ^<3>
+  -ptype KRB5_NT_PRINCIPAL ^
+  -crypto AES256-SHA1 ^
+  +rndPass
 ----
-
-.remove me
-----
-ktpass ^
-   -princ HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM ^
-   -mapuser svc_checkmk_http_prod@JODOK.TRIBE29.COM ^
-   -out c:\Temp\svc_http_prod.keytab ^
-   -ptype KRB5_NT_PRINCIPAL ^
-   -crypto AES256-SHA1 ^
-   +rndPass
-----
+<1> adjust for your {SP}
+<2> adjust for your service user
+<3> keytab file, delete it after it got moved to the checkmk site
 
 * Result should look like this:
 
 ----
 C:\Users\Administrator>ktpass ^
-More?    -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^
-More?    -mapuser svc_http_prod@IT.MYCOMPANY.TLD ^
-More?    -out z:\svc_http_prod.keytab ^
-More?    -ptype KRB5_NT_PRINCIPAL ^
-More?    -crypto AES256-SHA1 ^
-More?    +rndPass
+  -princ HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ^
+  -mapuser svc_checkmk_http_prod@IT.MYCOMPANY.TLD ^
+  -out c:\svc_checkmk_http_prod.keytab ^
+  -ptype KRB5_NT_PRINCIPAL ^
+  -crypto AES256-SHA1 ^
+  +rndPass
+
 Targeting domain controller: ad.jodok.tribe29.com
-Successfully mapped HTTP/monitoring.mycompany.tld to svc_http_cmk_prod.
+Successfully mapped HTTP/monitoring.mycompany.tld to svc_checkmk_http_pro.
 Password successfully set!
 Key created.
-Output keytab to z:\svc_http_prod.keytab:
+Output keytab to c:\svc_checkmk_http_prod.keytab:
 Keytab version: 0x502
-keysize 98 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ptype 1 (KRB5_NT_PRINCIPAL) vno 5 etype 0x12 (AES256-SHA1) keylength 32 (0xd98cb573ad9d63f259089030846c9609a3d4399053db6933c0c8335521a7b42b)
+keysize 95 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ptype 1 (KRB5_NT_PRINCIPAL) vno 3 etype 0x12 (AES256-SHA1) keylength 32 (0xd44915d771c04f7b12b74b4caa2f018d51c6007642962bbe4821aa83be395af1)
 ----
 
 [WARNING]
 ====
-* once you copied the c:\Temp\svc_http_prod.keytab into your checkmk site you shold remove the file as is contains a valid domain password.
+* once you copied the keytab file into your checkmk site you shold remove the file as is contains a valid domain password.
 * it can take up to n minutes that this gets replicated to your other domain controllers.
 ====
 
@@ -285,52 +278,68 @@ Registered ServicePrincipalNames for CN=svc_http_prod,CN=Users,DC=mycompany,DC=t
         HTTP/monitoring.mycompany.tld
 ----
 
+==== install the keytab
+
+.the quickest way is to pull it from the omd site
+----
+OMD[prod]:~$ kinit <ad-adminitstrator>
+
+OMD[prod]:~$ smbclient -k  //ad.mycompany.tld/C$
+smb: \> get svc_checkmk_http_prod.keytab
+
+getting file \svc_checkmk_http_prod.keytab of size 101 as svc_checkmk_http_prod.keytab (98.6 KiloBytes/sec) (average 98.6 KiloBytes/sec)
+----
+
+* Or use putty/scp or whatever to copy the svc_checkmk_http_prod.keytab to your checkmk site.
+
 === Verify the keytab file and SP in AD 
 
 * since we <<krb5-conf>> we can now use tools like kinit, klist, kvno 
-* klist ...
-* kinit
-* kvno
 
-.keytab file content
+.list the keytab file content
 ----
-linux$ klist -kte svc_http_prod.keytab
-Keytab name: FILE:svc_http_prod.keytab
----- ------------------- ------------------------------------------------------
-KVNO Timestamp           Principal
-   5 01.01.1970 01:00:00 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD (aes256-cts-hmac-sha1-96) 
+OMD[prod]:~$ klist -kt svc_checkmk_http_prod.keytab 
+
+Keytab name: FILE:svc_checkmk_http_prod.keytab
+KVNO Timestamp         Principal
+---- ----------------- --------------------------------------------------------
+   3 01/01/70 01:00:00 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD
 ----
 
 .get a TGT
 ----
-linux$ kdestroy
+OMD[prod]:~$ kdestroy
 
-linux$ kinit Administrator@IT.MYCOMPANY.TLD
-Password for Administrator@IT.MYCOMPANY.TLD: 
+OMD[prod]:~$ kinit Administrator@IT.MYCOMPANY.TLD
+Password for Administrator@IT.MYCOMPANY.TLD:
 
-linux$ klist
-FIXME
+OMD[prod]:~$ klist
+Ticket cache: FILE:/tmp/krb5cc_999
+Default principal: Administrator@IT.MYCOMPANY.TLD
+
+Valid starting     Expires            Service principal
+07/26/23 16:39:07  07/27/23 02:39:07  krbtgt/IT.MYCOMPANY.TLD@IT.MYCOMPANY.TLD
+	renew until 07/27/23 16:39:07
 ----
 
 .try to get the service ticket
 ----
-linux$ kvno HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD
-HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD: kvno = 5
+OMD[prod]:~$ kvno HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD
+HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD: kvno = 3
 ----
 
 .list your TGT and service tickets
 ----
-$ klist -e
-Ticket cache: FILE:/tmp/krb5cc_1000
+OMD[prod]:~$ klist -e
+Ticket cache: FILE:/tmp/krb5cc_999
 Default principal: Administrator@IT.MYCOMPANY.TLD
 
-Valid starting       Expires              Service principal
-18.07.2023 12:16:13  18.07.2023 22:16:13  krbtgt/IT.MYCOMPANY.TLD@IT.MYCOMPANY.TLD
-	renew until 19.07.2023 12:16:13, Etype (skey, tkt): aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96 
-18.07.2023 12:16:17  18.07.2023 22:16:13  HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD <1>
-	renew until 19.07.2023 12:16:13, Etype (skey, tkt): aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96
+Valid starting     Expires            Service principal
+07/26/23 16:39:07  07/27/23 02:39:07  krbtgt/IT.MYCOMPANY.TLD@IT.MYCOMPANY.TLD
+	renew until 07/27/23 16:39:07, Etype (skey, tkt): aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96 
+07/26/23 16:39:20  07/27/23 02:39:07  HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD
+	renew until 07/27/23 16:39:07, Etype (skey, tkt): aes256-cts-hmac-sha1-96, aes256-cts-hmac-sha1-96 
 ----
-<1> you should see your {SP}
 
 [#install-keytab]
 === Install the keytab file on the checkmk server
@@ -486,28 +495,18 @@ curl --negotiate --user : https://monitoring.it.company.tld/prod/
 * The location of the keytab /etc/krb5.keytab makes not make much sense, since it only needs and only should be readable by the site apache.
 * 
 
-== Problems
+== Troubleshooting
 
+* If something is fishy, start from scratch. Delete the domain user, wait until als DCs synced it and create it again.
 * increasing the apache debug level does not help much instead run it in the foreground apache -X 
-* You recreated the ServicePrincipal and keytab but you are still working with the old Service Ticket: kdestroy, kinit <username>
+----
+omd stop apache
+/usr/sbin/apache2 -f /omd/sites/jodok/etc/apache/apache.conf -X -e Debug
+----
+* If you recreated the ServicePrincipal and keytab for some reason it might be the case that you are still working with the old Service Ticket therefor do a kdestroy, kinit <username> again. On Windows you may have to logout and login again.
 * +KrbSaveCredentials on+ makes no sense for Checkmk and could be a security weakness.
 
 == Resources
 
 * https://web.mit.edu/kerberos/krb5-1.21/doc/admin/conf_files/krb5_conf.html
-
-== Asciidoctor 
-
-NOTE: NOTE An admonition draws the reader's attention to auxiliary information.
-
-IMPORTANT: IMPORTANT Don't forget the children!
-
-TIP: TIP Look for the warp zone under the bridge.
-
-CAUTION: Slippery when wet.
-
-WARNING: The software you're about to use is untested.
-
-IMPORTANT: Sign off before stepping away from your computer.
-
 
