@@ -7,6 +7,7 @@
 :lang: en
 :imagesdir: img
 :doctype: article
+:data-uri:
 :homepage: https://github.com/grepmeister/checkmk-kerberos-howto/blob/main/kerberos_howto.adoc
 :toc: left
 :sectnums:
@@ -33,9 +34,9 @@ I failed to set up {KRB} for Checkmk and {AD} using the https://docs.checkmk.com
 It's not complete as of https://github.com/Checkmk/checkmk-docs/blob/27fcad0191f44c0401f61227098e932597438226/en/kerberos.asciidoc[2023-07-18]. +
 I guess this is why it's not officially supported.
 
-I noticed that not only me but also other Checkmk users failed to set Kerberos up. +
-So I decided to write this HowTo. +
-It's not easy and it's not trivial, since many pices have to fit together.
+I noticed that not only me but also other Checkmk users failed to set up Kerberos. +
+So I decided to write this How-to. +
+It's not easy and it's not trivial, since many pieces have to fit together.
 
 [TIP]
 ====
@@ -66,8 +67,8 @@ I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 * To create the keytab file we will either use *msktutil* on Linux icon:linux[] or *ktpass.exe* on Windows icon:windows[].
 * We will need a domain user to map the {SP} to.
 ** On Windows you have to create the user manually first.
-** msktutil on linux will create the user on it's own for you.
-* Finaly we have to adjust the checkmk site apache configuration to use the kerberos in the file auth.conf .
+** msktutil on linux will create the user on its own for you.
+* Finally we have to adjust the checkmk site apache configuration to use the kerberos in the file auth.conf .
 
 == Prerequisite
 
@@ -75,7 +76,7 @@ I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 * Forward and reverse DNS entries are https://www.oreilly.com/library/view/kerberos-the-definitive/0596004036/ch04s03.html#kerberos-CHP-4-ITERM-1007[working].
 * Your Web Browsers trust your checkmk server's FQDN. (see <<browser-settings>> below)
 * You have got a Kerberos Ticket Granting Tickets (TGT) (kinit <AD-User>, klist, on Windows you get it automatically on Domain login)
-* Keep in mind that usually your {AD} Servers first have to sync. It can take up to 15min until all Servers know about the new user and the SPN mapping.
+* Keep in mind that usually your {AD} Servers first have to sync. It can take up to 15 min until all servers know about the new user and the SPN mapping.
 
 [#krb5-conf]
 === Set up /etc/krb5.conf
@@ -108,20 +109,20 @@ mycompany.tld = IT.MYCOMPANY.TLD <4>
 
 === On Windows
 
-Windows Servers usually already know everything about their kerberos domain. +
+Windows Servers typically already know everything about their kerberos domain. +
 Usually there is no need to configure anything.
 
 == Create the keytab file
 
-* I prefere to use msktutil to create the keytab containing the {SP}, because it is easy and just works.
-* But since msktutil is not available e.g. on the Checkmk Applinace I will also explain how to
+* I prefer to use msktutil to create the keytab containing the {SP}, because it is easy and just works.
+* But since msktutil is not available e.g. on the Checkmk Appliance I will also explain how to
 get a keytab file with the Windows tool ktpass.exe (which has got some pitfalls).
 
 === Linux (msktutil)
 
 TIP: You have to adjust some values to match your environment.
 
-* obtain and cache Kerberos ticket-granting ticket:
+* as checkmk site user obtain a Kerberos ticket-granting ticket:
 
 ----
 kinit <ad-admin-user>
@@ -146,7 +147,11 @@ Valid starting       Expires              Service principal
 	renew until 25.07.2023 19:56:17
 ----
 
+* With this TGT we can run kerberized commands against the AD.
 * This script will create the keytab file for you using your TGT:
+
+// callouts do work with continuated bash code (you get an extra space, copy and paste will fail)
+// https://docs.asciidoctor.org/asciidoc/latest/verbatim/callouts/
 
 .msktutil.sh
 [source,bash,linenums]
@@ -169,29 +174,29 @@ msktutil \
   --service HTTP/monitoring.mycompany.tld
 ----
 
-*--server use one of your active directory servers
-* --keytab the name of your keytab file
-* --realm your kerberos realm
-* --enctypes 0x10 stands for aes256-cts-hmac-sha1
-* --service your {SP} in the form *HTTP/<FQDN>*
+* Line 05: --server use one of your active directory servers
+* Line 12: --keytab the name of your keytab file
+* Line 14: --realm your kerberos realm
+* Line 15: --enctypes 0x10 stands for aes256-cts-hmac-sha1
+* Line 16: --service your {SP} in the form *HTTP/<FQDN>*
 
 .list the content of the keytab file
 ----
-$ klist -kte svc_msktutil_prod.keytab 
-Keytab name: FILE:svc_msktutil_prod.keytab
+$ klist -kte svc_checkmk_http_prod.keytab 
+Keytab name: FILE:svc_checkmk_http_prod.keytab
 KVNO Timestamp           Principal
 ---- ------------------- ------------------------------------------------------
-   1 24.07.2023 20:13:14 svc_msktutil_prod@IT.MYCOMPANY.TLD (aes256-cts-hmac-sha1-96) 
+   1 24.07.2023 20:13:14 svc_checkmk_http_prod@IT.MYCOMPANY.TLD (aes256-cts-hmac-sha1-96) 
    1 24.07.2023 20:13:14 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD (aes256-cts-hmac-sha1-96) 
 ----
 
 .test if you can authenticate using the the keytab
 ----
-$ kinit -kt svc_msktutil_prod.keytab 'svc_msktutil_prod@IT.MYCOMPANY.TLD'         
+$ kinit -kt svc_checkmk_http_prod.keytab 'svc_checkmk_http_prod@IT.MYCOMPANY.TLD'         
 
 $ klist 
 Ticket cache: FILE:/tmp/krb5cc_1000
-Default principal: svc_msktutil_prod@IT.MYCOMPANY.TLD <1>
+Default principal: svc_checkmk_http_prod@IT.MYCOMPANY.TLD <1>
 
 Valid starting       Expires              Service principal
 24.07.2023 20:16:23  25.07.2023 06:16:23  krbtgt/IT.MYCOMPANY.TLD@IT.MYCOMPANY.TLD
@@ -267,7 +272,7 @@ keysize 95 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ptype 1 (KRB5_NT_PRINC
 
 [WARNING]
 ====
-* once you copied the keytab file into your checkmk site you shold remove the file as is contains a valid domain password.
+* once you copied the keytab file into your checkmk site you should remove the file as it contains a valid domain password.
 * it can take up to n minutes that this gets replicated to your other domain controllers.
 ====
 
@@ -280,7 +285,7 @@ Registered ServicePrincipalNames for CN=svc_checkmk_http_prod,CN=Users,DC=mycomp
 
 ==== install the keytab
 
-.the quickest way is to pull it from the omd site
+.the quickest way is to pull it from the DC to the omd site
 ----
 OMD[prod]:~$ kinit <ad-adminitstrator>
 
@@ -345,8 +350,8 @@ Valid starting     Expires            Service principal
 === Install the keytab file on the checkmk server
 
 * copy the svc_checkmk_http_prod.keytab to the prod site /omd/sites/prod/etc/apache/svc_checkmk_http_prod.keytab
-* make sure it is only readable by the prod site user:
 
+.make sure it is only readable by the prod site user:
 ----
 chown prod:prod svc_checkmk_http_prod.keytab
 chmod 400 svc_checkmk_http_prod.keytab
@@ -444,7 +449,7 @@ Define REALM IT.MYCOMPANY.TLD
 ----
 <1> add your checkmk site name (instance)
 <2> add your {KR}
-<3> on redhat based systems the path is FIXME 
+<3> on redhat based systems the path is different FIXME 
 <4> add your {SP} {MY-SP}
 
 .restart site apache
