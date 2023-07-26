@@ -55,7 +55,7 @@ I am using Windows Server 2019 and Checkmk 2.1 while writing this document.
 | {KR} | IT.MYCOMPANY.TLD | Always upper case. 
 | {SP} | HTTP/monitoring.it.mycompany.tld | ⚠️  It's *HTTP* not *HTTPS*.
 | Monitoring Server URL | https://monitoring.it.mycompany.tld/prod |
-| AD Service User | svc_http_prod | In {AD} you have to map a {SP} to a user object.
+| AD Service User | svc_checkmk_http_prod | In {AD} you have to map a {SP} to a user object.
 | {DC} | ad.mycompany.tld | acts as {KDC}
 | Checkmk Site | prod | the checkmk site 
 |===
@@ -163,8 +163,8 @@ msktutil \
   --no-reverse-lookups \
   --user-creds-only \
   --use-service-account \
-  --keytab svc_http_prod.keytab \
-  --account-name svc_http_prod \
+  --keytab svc_checkmk_http_prod.keytab \
+  --account-name svc_checkmk_http_prod \
   --realm IT.MYCOMPANY.TLD \ 
   --enctypes 0x10 \
   --service HTTP/monitoring.mycompany.tld
@@ -273,8 +273,8 @@ keysize 95 HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD ptype 1 (KRB5_NT_PRINC
 
 * Check the Service Principal to User mapping
 ----
-C:\Users\Administrator>setspn -L svc_http_prod
-Registered ServicePrincipalNames for CN=svc_http_prod,CN=Users,DC=mycompany,DC=tld:
+C:\Users\Administrator>setspn -L svc_checkmk_http_prod
+Registered ServicePrincipalNames for CN=svc_checkmk_http_prod,CN=Users,DC=mycompany,DC=tld:
         HTTP/monitoring.mycompany.tld
 ----
 
@@ -344,18 +344,18 @@ Valid starting     Expires            Service principal
 [#install-keytab]
 === Install the keytab file on the checkmk server
 
-* copy the svc_http_prod.keytab to the prod site /omd/sites/prod/etc/apache/svc_http_prod.keytab
+* copy the svc_checkmk_http_prod.keytab to the prod site /omd/sites/prod/etc/apache/svc_checkmk_http_prod.keytab
 * make sure it is only readable by the prod site user:
 
 ----
-chown prod:prod svc_http_prod.keytab
-chmod 400 svc_http_prod.keytab
+chown prod:prod svc_checkmk_http_prod.keytab
+chmod 400 svc_checkmk_http_prod.keytab
 ----
 
 * the result should look like this
 ----
-OMD[prod]:~$ ls -l ~/etc/apache/svc_http_prod.keytab
--r-------- 1 prod prod 198 Jul 24 20:13 /omd/sites/prod/etc/apache/svc_http_prod.keytab
+OMD[prod]:~$ ls -l ~/etc/apache/svc_checkmk_http_prod.keytab
+-r-------- 1 prod prod 198 Jul 24 20:13 /omd/sites/prod/etc/apache/svc_checkmk_http_prod.keytab
 ----
 
 == Apache Config
@@ -370,7 +370,7 @@ mv -v ~/etc/apache/conf.d/cookie_auth.conf ~/cookie_auth.conf.bak
 
 // FIXME, make all variables a Define in the header
 // Define PRINCIPAL HTTP/monitoring.it.mycompany.tld@IT.MYCOMPANY.TLD
-// Define KEYTAB /etc/apache/svc_http_prod.keytab
+// Define KEYTAB /etc/apache/svc_checkmk_http_prod.keytab
 .New Apache Config {TILDE}/etc/apache/conf.d/auth.conf
 [source,apache,linenums]
 ----
@@ -414,7 +414,7 @@ Define REALM IT.MYCOMPANY.TLD
     KrbSaveCredentials off
 
     # Environment specific: Path to the keytab, REALM and ServicePrincipal
-    Krb5Keytab /omd/sites/${SITE}/etc/apache/svc_http_prod.keytab
+    Krb5Keytab /omd/sites/${SITE}/etc/apache/svc_checkmk_http_prod.keytab
     #          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ <4>
 
     KrbServiceName HTTP/monitoring.it.mycompany.tld@IT.MYCOMPANY.TLD
