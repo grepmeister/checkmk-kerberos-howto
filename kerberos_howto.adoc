@@ -25,7 +25,6 @@
 :KR: pass:quotes[*Kerberos Realm*]
 :DC: pass:quotes[*Domain Controller (DC)*]
 :MY-SP: HTTP/monitoring.it.mycompany.tld
-// is there is a asciidoctor offline documentation ?
 
 == Intro
 
@@ -169,11 +168,12 @@ msktutil \
   --enctypes 0x10 \
   --service HTTP/monitoring.mycompany.tld
 ----
-<1> --server use one of your active directory servers
-<2> --keytab the name of your keytab file
-<3> --realm your kerberos realm
-<4> --enctypes 0x10 stands for aes256-cts-hmac-sha1
-<5> --service your {SP} in the form *HTTP/<FQDN>*
+
+*--server use one of your active directory servers
+* --keytab the name of your keytab file
+* --realm your kerberos realm
+* --enctypes 0x10 stands for aes256-cts-hmac-sha1
+* --service your {SP} in the form *HTTP/<FQDN>*
 
 .list the content of the keytab file
 ----
@@ -201,8 +201,8 @@ Valid starting       Expires              Service principal
 
 .try to get a kerberos service ticket
 ----
-$ kvno HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM
-HTTP/cmk.jodok.tribe29.com@JODOK.TRIBE29.COM: kvno = 1
+$ kvno HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD
+HTTP/monitoring.mycompany.tld@IT.MYCOMPANY.TLD: kvno = 1
 ----
 
 Now you can continue with <<install-keytab>>.
@@ -256,7 +256,7 @@ C:\Users\Administrator>ktpass ^
   -crypto AES256-SHA1 ^
   +rndPass
 
-Targeting domain controller: ad.jodok.tribe29.com
+Targeting domain controller: ad.mycompany.tld
 Successfully mapped HTTP/monitoring.mycompany.tld to svc_checkmk_http_pro.
 Password successfully set!
 Key created.
@@ -489,24 +489,24 @@ network.negotiate-auth.trusted-uris: .it.example.tld
 curl --negotiate --user : https://monitoring.it.company.tld/prod/
 ----
 
-== Summary
-
-* In the original document there are some stars a in the apache configuration to highlight that they need to be customized, but users did not replace them.
-* The location of the keytab /etc/krb5.keytab makes not make much sense, since it only needs and only should be readable by the site apache.
-* 
-
 == Troubleshooting
 
-* If something is fishy, start from scratch. Delete the domain user, wait until als DCs synced it and create it again.
+* If something is fishy, start from scratch. Delete the domain user, wait until all DCs synced and create it again.
 * increasing the apache debug level does not help much instead run it in the foreground apache -X 
 ----
 omd stop apache
 /usr/sbin/apache2 -f /omd/sites/jodok/etc/apache/apache.conf -X -e Debug
 ----
 * If you recreated the ServicePrincipal and keytab for some reason it might be the case that you are still working with the old Service Ticket therefor do a kdestroy, kinit <username> again. On Windows you may have to logout and login again.
-* +KrbSaveCredentials on+ makes no sense for Checkmk and could be a security weakness.
 
 == Resources
 
 * https://web.mit.edu/kerberos/krb5-1.21/doc/admin/conf_files/krb5_conf.html
 
+== Known problems
+
+* svc_checkmk_http_prod gets truncated to svc_checkmk_http_pro
+
+----
+sAMAccountName: svc_checkmk_http_pro
+----
