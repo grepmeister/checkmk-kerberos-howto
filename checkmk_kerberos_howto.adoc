@@ -17,6 +17,7 @@
 :experimental:
 :source-highlighter: rouge
 :rouge-linenums-mode: table
+:nofooter:
 
 :TILDE: pass:quotes[~]
 :SP: pass:quotes[*ServicePrincipal (SP)*]
