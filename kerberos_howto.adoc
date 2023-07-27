@@ -463,20 +463,63 @@ omd restart apache
 [#browser-settings]
 == Browser Settings
 
+=== curl 
+
+* handy for troubleshooting and quick testing your kerberos setup.
+* make sure you have a valid tgt ticket (kinit <ad-user>, klist )
+
+.curl can do kerberos via negotate autentication
+----
+curl --negotiate --user : https://monitoring.it.company.tld/prod/
+----
+
+.check for WWW-Authenticate and Authorization headers:
+----
+curl \
+   --verbose \
+   --silent \
+   --negotiate -u : \
+   "https://monitoring.mycomany.tld/prod/check_mk/user_profile.py"  2>&1 \
+   |  grep -P '^[<>]+ (WWW-Authenticate|Authorization): +'
+----
+
+You should see somehting like this
+
+----
+> Authorization: Negotiate YIIFzwYGKwYBBQUCoIIF... <1>
+  (multiline base64 output
+
+< WWW-Authenticate: Negotiate oYG3MIG0oAMKAQChY... <2>
+----
+<1> request header
+<2> response header
+
 === Firefox
 
 * Configuring Firefox for Negotiate Authentication
 * Enter you DNS Domain for which you want to use kerberos:
 ----
 about: config
-network.negotiate-auth.trusted-uris: .it.example.tld
+network.negotiate-auth.trusted-uris: .mycomany.tld
 ----
+* So it will match monitoring.mycomany.tld
 
 * Firefox will then send a HTTP Header to the Checkmk Server that signals the apache, that it can do Kerberos.
+* This sould bring you to your user profile without a login screen:
+----
+firefox-esr "https://monitoring.mycomany.tld/prod/check_mk/user_profile.py"
+----
 
 === Google Chrome
 
-* On Windows EDGE usually already trusts your DNS domain.
+* They recently changed the kerberos relevant parameter for google-chrome and its clones from *--auth-server-whitelist* to *--auth-server-allowlist*
+* This works now for me now:
+----
+google-chrome --auth-server-allowlist="*.mycompany.tld" https://monitoring.mycomany.tld/prod/check_mk/
+----
+
+* It's now *...-allowlist* not *...-whitelist* anymore.
+* Source: https://support.google.com/chrome/thread/201738899/kerberos-sso-stopped-working-under-linux-after-updating-chrome-to-110?hl=en
 
 === Microsoft EDGE
 
@@ -486,27 +529,25 @@ network.negotiate-auth.trusted-uris: .it.example.tld
 
 * I have no clue. But Safari can do Kerberos SSO as well. Somehow.
 
-=== Curl
-
-* curl can do negotate autentication
-* make sure you have a valid tgt ticket (kinit <ad-user>, klist )
-----
-curl --negotiate --user : https://monitoring.it.company.tld/prod/
-----
-
 == Troubleshooting
 
 * If something is fishy, start from scratch. Delete the domain user, wait until all DCs synced and create it again.
-* increasing the apache debug level does not help much instead run it in the foreground apache -X 
+* increasing the apache debug level does not help much instead run it in the foreground with -X and LogLevel increased to trace8
 ----
 omd stop apache
-/usr/sbin/apache2 -f /omd/sites/jodok/etc/apache/apache.conf -X -e Debug
+
+$ grep ^LogLevel etc/apache/apache.conf
+LogLevel trace8
+
+/usr/sbin/apache2 -f /omd/sites/jodok/etc/apache/apache.conf -X
 ----
 * If you recreated the ServicePrincipal and keytab for some reason it might be the case that you are still working with the old Service Ticket therefor do a kdestroy, kinit <username> again. On Windows you may have to logout and login again.
 
 == Resources
 
 * https://web.mit.edu/kerberos/krb5-1.21/doc/admin/conf_files/krb5_conf.html
+* https://social.technet.microsoft.com/wiki/contents/articles/2751.kerberos-interoperability-step-by-step-guide-for-windows-server-2003.aspx
+* https://learn.microsoft.com/en-US/troubleshoot/windows-server/windows-security/kdc-event-16-27-des-encryption-disabled#cause
 
 == Known problems
 
