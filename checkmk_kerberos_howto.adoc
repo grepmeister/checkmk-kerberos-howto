@@ -1,9 +1,9 @@
 // https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
 = Kerberos SSO & Active Directory in 2023 {revnumber}
-:author: Y0d0g MiMiMi
+:author: Grepmeister MiMiMi
 :email: github@stippmilch.de
 :revnumber: v1.0
-:revdate: 2023-07-24 12:32:06
+:revdate: 2023-07-27 10:00:00
 :lang: en
 :imagesdir: img
 :doctype: article
@@ -539,7 +539,8 @@ omd stop apache
 $ grep ^LogLevel etc/apache/apache.conf
 LogLevel trace8
 
-/usr/sbin/apache2 -f /omd/sites/jodok/etc/apache/apache.conf -X
+/usr/sbin/apache2 -f /omd/sites/<site>/etc/apache/apache.conf -X
+/usr/sbin/apache2 -f /omd/sites/prod/etc/apache/apache.conf -X
 ----
 * If you recreated the ServicePrincipal and keytab for some reason it might be the case that you are still working with the old Service Ticket therefor do a kdestroy, kinit <username> again. On Windows you may have to logout and login again.
 
