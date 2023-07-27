@@ -8,7 +8,7 @@
 :imagesdir: img
 :doctype: article
 :data-uri:
-:homepage: https://github.com/grepmeister/checkmk-kerberos-howto/blob/main/kerberos_howto.adoc
+:homepage: https://github.com/grepmeister/checkmk-kerberos-howto/blob/main/
 :toc: left
 :sectnums:
 :numbered:
