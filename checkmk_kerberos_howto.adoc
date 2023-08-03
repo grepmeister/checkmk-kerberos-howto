@@ -1,4 +1,4 @@
-It’s now …​-allowlist not …​-whitelist anymore.// https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
+// https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
 = Kerberos SSO & Active Directory in 2023 {revnumber}
 :author: Grepmeister MiMiMi
 :email: github@stippmilch.de
