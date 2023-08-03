@@ -1,9 +1,9 @@
-// https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
+It’s now …​-allowlist not …​-whitelist anymore.// https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/
 = Kerberos SSO & Active Directory in 2023 {revnumber}
 :author: Grepmeister MiMiMi
 :email: github@stippmilch.de
-:revnumber: v1.0
-:revdate: 2023-07-27 10:00:00
+:revnumber: v1.1
+:revdate: 2023-08-03 08:00:00
 :lang: en
 :imagesdir: img
 :doctype: article
@@ -514,12 +514,11 @@ firefox-esr "https://monitoring.mycomany.tld/prod/check_mk/user_profile.py"
 === Google Chrome
 
 * They recently changed the kerberos relevant parameter for google-chrome and its clones from *--auth-server-whitelist* to *--auth-server-allowlist*
-* This works now for me now:
+* This works for me:
 ----
 google-chrome --auth-server-allowlist="*.mycompany.tld" https://monitoring.mycomany.tld/prod/check_mk/
 ----
 
-* It's now *...-allowlist* not *...-whitelist* anymore.
 * Source: https://support.google.com/chrome/thread/201738899/kerberos-sso-stopped-working-under-linux-after-updating-chrome-to-110?hl=en
 
 === Microsoft EDGE
@@ -529,6 +528,23 @@ google-chrome --auth-server-allowlist="*.mycompany.tld" https://monitoring.mycom
 === Safari
 
 * I have no clue. But Safari can do Kerberos SSO as well. Somehow.
+* Safari behaves different when using a CNAME
+== Limit access
+
+Now everybody in your company with a valid Kerberos TGT can access your checmk site. +
+This is not always what is wanted. +
+You can limit this by either stack the https://httpd.apache.org/docs/2.4/mod/mod_authnz_ldap.html[apache mod_authnz_ldap] and do authorization (not authentication) using LDAP in addition to the mod_auth_kerb.
+
+. Example
+----
+require ldap-group CN=Checkmk-Users,DC=IT,DC=MYCOMPANY,DC=tld
+----
+
+Or setting at least the default role in checkmk to something where nothing is visible by default.
+
+.Setup > General > Global settings > Edit global setting
+* Visibility of hosts/services
+** [x] Only show hosts and services the user is a contact for
 
 == Troubleshooting
 
@@ -545,8 +561,16 @@ LogLevel trace8
 ----
 * If you recreated the ServicePrincipal and keytab for some reason it might be the case that you are still working with the old Service Ticket therefor do a kdestroy, kinit <username> again. On Windows you may have to logout and login again.
 
+=== Login as different user
+
+To make use of kerberos not point you browser to /<site>/check_mk/login.py but /<site>/check_mk/ instead.
+but to login as a different user e.g. cmkadmin or omdadmin point it to /<site>/check_mk/login.py
+
+===
+
 == Resources
 
+* https://learning.oreilly.com/library/view/kerberos-2nd-edition/9781098141059/[Kerberos, 2nd Edition] By Mark Pröhl, Daniel Kobras (ISBN 978-3-96088-852-9)
 * https://web.mit.edu/kerberos/krb5-1.21/doc/admin/conf_files/krb5_conf.html
 * https://social.technet.microsoft.com/wiki/contents/articles/2751.kerberos-interoperability-step-by-step-guide-for-windows-server-2003.aspx
 * https://learn.microsoft.com/en-US/troubleshoot/windows-server/windows-security/kdc-event-16-27-des-encryption-disabled#cause
